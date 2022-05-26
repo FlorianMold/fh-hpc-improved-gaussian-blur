@@ -351,3 +351,5 @@ MigrationBackup/
 
 *.iml
 .idea/
+
+**/output.bmp
