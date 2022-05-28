@@ -16,8 +16,8 @@ argument
 # Improved Gaussian Blur
 
 - [] Implement the Gaussian blur as two-pass filter
-- [] Implement a single kernel function and call it two times
-- [] One call should run column-wise and one call should run row-wise (Do not transpose the image!)
-- [] The work-group size should always be equal to one column / one row of the soruce image
-- [] Exit the program if the resulting work-group is too big for the system
+- [x] Implement a single kernel function and call it two times
+- [x] One call should run column-wise and one call should run row-wise (Do not transpose the image!)
+- [x] The work-group size should always be equal to one column / one row of the soruce image
+- [x] Exit the program if the resulting work-group is too big for the system
 - [] Minimize access of source pixel values from Global Memory by utilizing Local Memory

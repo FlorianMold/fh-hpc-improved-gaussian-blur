@@ -1,6 +1,11 @@
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 #define _CRT_SECURE_NO_DEPRECATE
 
+// My PC:
+// Device Capabilities : Max work items in single group : 256
+// Device Capabilities : Max work item dimensions : 3
+// Device Capabilities : Max work items in group per dimension : 0 : 1024 1 : 1024 2 : 1024
+
 #include <CL/cl.h>
 
 #include <iostream>
@@ -144,10 +149,12 @@ unsigned char* openImg(const char* fileName, img* img) {
 		exit(1);
 	}
 
+	auto arrayWidth = img->width * img->height * 3;
+
 	// Read only the image-data in an array
-	auto data = new unsigned char[img->arraywidth];
+	auto data = new unsigned char[arrayWidth];
 	fseek(file, img->data, SEEK_SET);
-	fread(data, img->arraywidth, 1, file);
+	fread(data, arrayWidth, 1, file);
 	fclose(file);
 
 	return data;
@@ -156,10 +163,12 @@ unsigned char* openImg(const char* fileName, img* img) {
 void writeImage(unsigned char* imageData, img* outputImage, const char* fileName) {
 	FILE* file;
 
+	auto arrayWidth = outputImage->width * outputImage->height * 3;
+
 	file = fopen(fileName, "wb");
 	fwrite(outputImage, IMAGE_SIZE, 1, file);
 	fseek(file, outputImage->data, SEEK_SET);
-	fwrite(imageData, outputImage->arraywidth, 1, file);
+	fwrite(imageData, arrayWidth, 1, file);
 	fclose(file);
 }
 
@@ -198,8 +207,6 @@ float* generateKernel(int radius, float sigma) {
 	return gauss;
 }
 
-int neededWorkItemDimensions = 2;
-
 int main() {
 
 	// Generate kernel
@@ -209,7 +216,7 @@ int main() {
 	float* gaussKernel = generateKernel(radius, sigma);
 	int32_t imageLayers = 3;
 
-	string imageName = "images/xl.bmp";
+	string imageName = "images/mario.bmp";
 	const char* cImageName = imageName.c_str();
 	img* bmp = new img[IMAGE_SIZE];
 	unsigned char* imgData = openImg(cImageName, bmp);
@@ -219,7 +226,8 @@ int main() {
 	printf("The image is %upx x %upx\n", imageWidth, imageHeight);
 
 	int32_t imageSize = imageWidth * imageHeight;
-	printf("The image has %u pixels\n", imageSize);
+	printf("The image has %u pixels\n\n", imageSize);
+	int32_t arrayWidth = imageSize * imageLayers;
 
 	cl_int status;
 
@@ -253,12 +261,22 @@ int main() {
 	checkStatus(clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &maxWorkGroupSize, NULL));
 	printf("Device Capabilities: Max work items in single group: %zu\n", maxWorkGroupSize);
 
+	if (imageWidth > maxWorkGroupSize) {
+		printf("Error: Your image-width (%upx) is too big! Max allowed image-width is (%upx)\n", imageWidth, maxWorkGroupSize);
+		exit(EXIT_FAILURE);
+	}
+
+	if (imageHeight > maxWorkGroupSize) {
+		printf("Error: Your image-height (%upx) is too big! Max allowed image-height is (%upx)\n", imageHeight, maxWorkGroupSize);
+		exit(EXIT_FAILURE);
+	}
+
 	cl_uint maxWorkItemDimensions;
 	checkStatus(clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint), &maxWorkItemDimensions, NULL));
 	printf("Device Capabilities: Max work item dimensions: %u\n", maxWorkItemDimensions);
 
 	// Query device capabilities to make sure the NDRange is valid for the system
-	if (maxWorkItemDimensions < neededWorkItemDimensions) {
+	if (maxWorkItemDimensions < 1) {
 		printf("Error: You don't have enough work-item dimensions (%u)! You need two work-item dimensions\n", maxWorkItemDimensions);
 		exit(EXIT_FAILURE);
 	}
@@ -286,27 +304,15 @@ int main() {
 	size_t kernelSize = (diameter * diameter) * sizeof(float);
 	size_t radiusSize = sizeof(int32_t);
 
-	// Allocate 5 input buffer
-	cl_mem imageDataBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY, imageSizeSize, NULL, &status);
-	checkStatus(status);
+	// Allocate input buffer
 	cl_mem gaussKernelBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY, kernelSize, NULL, &status);
-	checkStatus(status);
-	cl_mem diameterBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY, radiusSize, NULL, &status);
-	checkStatus(status);
-	cl_mem imageWidthBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY, imageWidthSize, NULL, &status);
-	checkStatus(status);
-	cl_mem imageHeightBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY, imageHeightSize, NULL, &status);
 	checkStatus(status);
 
 	// Allocate 1 output buffer
 	cl_mem imageOutputBuffer = clCreateBuffer(context, CL_MEM_WRITE_ONLY, imageSizeSize, NULL, &status);
 	checkStatus(status);
 
-	checkStatus(clEnqueueWriteBuffer(commandQueue, imageDataBuffer, CL_TRUE, 0, imageSizeSize, imgData, 0, NULL, NULL));
 	checkStatus(clEnqueueWriteBuffer(commandQueue, gaussKernelBuffer, CL_TRUE, 0, kernelSize, gaussKernel, 0, NULL, NULL));
-	checkStatus(clEnqueueWriteBuffer(commandQueue, diameterBuffer, CL_TRUE, 0, radiusSize, &radius, 0, NULL, NULL));
-	checkStatus(clEnqueueWriteBuffer(commandQueue, imageWidthBuffer, CL_TRUE, 0, imageWidthSize, &imageWidth, 0, NULL, NULL));
-	checkStatus(clEnqueueWriteBuffer(commandQueue, imageHeightBuffer, CL_TRUE, 0, imageHeightSize, &imageHeight, 0, NULL, NULL));
 
 	const char* kernelFileName = "gauss.cl";
 	std::ifstream ifs(kernelFileName);
@@ -335,23 +341,79 @@ int main() {
 	cl_kernel kernel = clCreateKernel(program, "gaussian_blur", &status);
 	checkStatus(status);
 
+	// orientation = 0 ==> column-wise
+	// orientation = 1 ==> row-wise
+
 	// Set the arguments for the kernel
-	checkStatus(clSetKernelArg(kernel, 0, sizeof(cl_mem), &imageDataBuffer));
 	checkStatus(clSetKernelArg(kernel, 1, sizeof(cl_mem), &gaussKernelBuffer));
-	checkStatus(clSetKernelArg(kernel, 2, sizeof(cl_mem), &diameterBuffer));
-	checkStatus(clSetKernelArg(kernel, 3, sizeof(cl_mem), &imageWidthBuffer));
-	checkStatus(clSetKernelArg(kernel, 4, sizeof(cl_mem), &imageHeightBuffer));
-	checkStatus(clSetKernelArg(kernel, 5, sizeof(cl_mem), &imageOutputBuffer));
+	checkStatus(clSetKernelArg(kernel, 2, sizeof(radius), &radius));
+	checkStatus(clSetKernelArg(kernel, 3, sizeof(imageWidth), &imageWidth));
+	checkStatus(clSetKernelArg(kernel, 4, sizeof(imageHeight), &imageHeight));
+	checkStatus(clSetKernelArg(kernel, 7, sizeof(cl_mem), &imageOutputBuffer));
 
+	// The output-image.
+	unsigned char* outputImage = new unsigned char[arrayWidth];
 
-	// Execute the kernel
-	size_t globalWorkSize[2] = { imageWidth, imageHeight };
-	checkStatus(clEnqueueNDRangeKernel(commandQueue, kernel, neededWorkItemDimensions, NULL, globalWorkSize, NULL, 0, NULL, NULL));
+	size_t globalWorkSize[1] = { imageWidth * imageHeight };
 
-	// read the device output buffer to the host output array
-	unsigned char* outputImage = new unsigned char[bmp->arraywidth];
+	#pragma region "Vertical-Pass"
+
+	int32_t orientationColumnWise = 0;
+	// The work-group size of the column is the image-height.
+	size_t localWorkSizeColumnWise[1] = { imageHeight };
+
+	cl_mem imageDataBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY, imageSizeSize, NULL, &status);
+	checkStatus(status);
+
+	checkStatus(clEnqueueWriteBuffer(commandQueue, imageDataBuffer, CL_TRUE, 0, imageSizeSize, imgData, 0, NULL, NULL));
+
+	checkStatus(clSetKernelArg(kernel, 0, sizeof(cl_mem), &imageDataBuffer));
+	checkStatus(clSetKernelArg(kernel, 5, sizeof(orientationColumnWise), &orientationColumnWise));
+	checkStatus(clSetKernelArg(kernel, 6, imageHeight * 3, NULL));
+
+	cl_event verticalKernelCompletionEvent;
+
+	// Execute the vertical kernel
+	checkStatus(clEnqueueNDRangeKernel(commandQueue, kernel, 1, NULL, globalWorkSize, localWorkSizeColumnWise, 0, NULL, &verticalKernelCompletionEvent));
+
+	// Wait for completion of vertical kernel
+	clWaitForEvents(1, &verticalKernelCompletionEvent);
+	printf("Completed the vertical kernel!\n");
+
+	// Read the output of the vertical kernel execution
 	checkStatus(clEnqueueReadBuffer(commandQueue, imageOutputBuffer, CL_TRUE, 0, imageSizeSize, outputImage, 0, NULL, NULL));
-	
+	printf("Read the output of the vertical kernel execution!\n");
+
+	#pragma endregion "Vertical-Pass"
+
+	writeImage(outputImage, bmp, "vertical-filter.bmp");
+
+	#pragma region "Horizontal-Pass"
+
+	int32_t orientationRowWise = 1;
+	// The work-group size of the row is the image-width.
+	size_t localWorkSizeRowWise[1] = { imageWidth };
+
+	// Create a new buffer for the input image
+	cl_mem imageBufferHorizontal = clCreateBuffer(context, CL_MEM_READ_ONLY, imageSizeSize, NULL, &status);
+	checkStatus(status);
+
+	// Write the output from the first kernel execution as the input parameter of the horizontal kernel execution
+	checkStatus(clEnqueueWriteBuffer(commandQueue, imageBufferHorizontal, CL_TRUE, 0, imageSizeSize, outputImage, 0, NULL, NULL));
+
+	// Pass the new image-data buffer
+	checkStatus(clSetKernelArg(kernel, 0, sizeof(cl_mem), &imageBufferHorizontal));
+	checkStatus(clSetKernelArg(kernel, 5, sizeof(orientationRowWise), &orientationRowWise));
+	checkStatus(clSetKernelArg(kernel, 6, imageWidth * 3, NULL));
+
+	// Execute the horizontal kernel
+	checkStatus(clEnqueueNDRangeKernel(commandQueue, kernel, 1, NULL, globalWorkSize, localWorkSizeRowWise, 0, NULL, NULL));
+
+	// Read the output of the horizontal kernel execution
+	checkStatus(clEnqueueReadBuffer(commandQueue, imageOutputBuffer, CL_TRUE, 0, imageSizeSize, outputImage, 0, NULL, NULL));
+
+	#pragma endregion "Horizontal-Pass"
+
 	// Write image to file-system
 	string outputFileName = "output.bmp";
 
@@ -363,16 +425,13 @@ int main() {
 	free(gaussKernel);
 	free(imgData);
 
-
 	// release opencl objects
 	checkStatus(clReleaseKernel(kernel));
 	checkStatus(clReleaseProgram(program));
 	checkStatus(clReleaseMemObject(imageDataBuffer));
 	checkStatus(clReleaseMemObject(gaussKernelBuffer));
-	checkStatus(clReleaseMemObject(diameterBuffer));
-	checkStatus(clReleaseMemObject(imageWidthBuffer));
-	checkStatus(clReleaseMemObject(imageHeightBuffer));
 	checkStatus(clReleaseMemObject(imageOutputBuffer));
+	checkStatus(clReleaseMemObject(imageBufferHorizontal));
 	checkStatus(clReleaseCommandQueue(commandQueue));
 	checkStatus(clReleaseContext(context));
 

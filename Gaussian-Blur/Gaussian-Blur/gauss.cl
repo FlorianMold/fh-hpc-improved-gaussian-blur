@@ -1,59 +1,90 @@
-__kernel void gaussian_blur(__global unsigned char *inputImage,
-                            __global const float *gaussKernel,
-                            __global const int *kernelRadius,
-                            __global const int *imageWidth,
-                            __global const int *imageHeight,
-                            __global unsigned char *outputImage) {
+__kernel void gaussian_blur(
+    __global const unsigned char *inputImage, __global const float *gaussKernel,
+    int radius, int width, int height, int orientation,
+    // Store the pixels of the current work-group (row or column).
+    __local unsigned char *currentData, __global unsigned char *outputImage) {
 
-  size_t column = get_global_id(0);
-  size_t row = get_global_id(1);
+  size_t uniqueId = get_global_id(0);
+  // This value is between 0 and the work-group size. (image-width,
+  // image-height)
+  // The current pixel of the row/column.
+  size_t localId = get_local_id(0);
 
-  /** We need a pointer to the variable, otherwise we print the address. */
-  int width = *imageWidth;
-  int height = *imageHeight;
-  int radius = *kernelRadius;
-  int diameter = radius * 2 + 1;
+  // Every row/column is a group.
+  // The workgroup-id is the row for the horizontal
+  // The workgroup-id is the column for the vertical
+  size_t workgroupId = get_group_id(0);
+
   int imageLayers = 3;
 
-  if (column == 0 && row == 0) {
+  if (uniqueId == 0) {
     printf("\n");
     printf("Kernel information:");
-    printf("width: %d", width);
-    printf("height: %d", height);
-    printf("kernelDiameter: %d", diameter);
-    printf("kernelRadius: %d", radius);
+    if (orientation == 0) {
+      printf("  Vertical");
+    } else {
+      printf("  Horizontal");
+    }
+    printf("  width: %d", width);
+    printf("  height: %d", height);
+    printf("  kernelRadius: %d", radius);
+    printf("  orientation: %d", orientation);
     printf("\n");
   }
+
+  int row;
+  int column;
+  // The amount of work-items (pixel) in the row/column.
+  int maxRange;
+
+  if (orientation == 0) {
+    row = localId;
+    column = workgroupId;
+    maxRange = height;
+  } else {
+    row = workgroupId;
+    column = localId;
+    maxRange = width;
+  }
+
+  // Set the data for the current row/column so that it can be easier processed
+  for (int l = 0; l < imageLayers; l++) {
+    if (orientation == 0) {
+      currentData[localId * imageLayers + l] =
+          inputImage[imageLayers * localId * width + imageLayers * column + l];
+
+    } else {
+      currentData[localId * imageLayers + l] =
+          inputImage[imageLayers * row * width + imageLayers * localId + l];
+    }
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
 
   for (int layer = 0; layer < imageLayers; layer++) {
     float colorSum = 0;
     float weightedSum = 0;
 
-    for (int y = -radius, ky = 0; y <= radius; y++, ky++) {
-      for (int x = -radius, kx = 0; x <= radius; x++, kx++) {
-        int kx = x + radius;
-        int ky = y + radius;
+    for (int i = -radius; i <= radius; i++) {
 
-        float gaussKernelValue = gaussKernel[kx * diameter + ky];
+      float gaussKernelValue = gaussKernel[i + radius];
 
-        int clampedRow = row;
-        int clampedColumn = column;
+      int clampedCurrentElement = localId;
 
-        // Check that the pixel is in the boundaries
-        clampedRow +=
-            (clampedRow + y) < height && (clampedRow + y) >= 0 ? y : 0;
-        // Check that the pixel is in the boundaries
-        clampedColumn +=
-            (clampedColumn + x) < width && (clampedColumn + x) >= 0 ? x : 0;
+      // Check that the pixel is in the boundaries
+      clampedCurrentElement += (clampedCurrentElement + i) < maxRange &&
+                                       (clampedCurrentElement + i) >= 0
+                                   ? i
+                                   : 0;
 
-        float inputColor = inputImage[clampedRow * imageLayers * width +
-                                      clampedColumn * imageLayers + layer];
-        colorSum += inputColor * gaussKernelValue;
-        weightedSum += gaussKernelValue;
-      }
+      float inputColor =
+          currentData[clampedCurrentElement * imageLayers + layer];
+
+      colorSum += inputColor * gaussKernelValue;
+      weightedSum += gaussKernelValue;
     }
 
-    outputImage[imageLayers * row * width + 3 * column + layer] =
+    outputImage[imageLayers * row * width + imageLayers * column + layer] =
         colorSum / weightedSum;
   }
 }
