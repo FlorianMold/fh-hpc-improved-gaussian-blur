@@ -132,7 +132,7 @@ unsigned char* openImg(const char* fileName, img* img) {
 		cout << "The file " << fileName << " was not found!";
 		// Free the memory of the image
 		delete img;
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	// Read everything in our struct
@@ -146,6 +146,7 @@ unsigned char* openImg(const char* fileName, img* img) {
 	}
 
 	auto arrayWidth = img->width * img->height * 3;
+	img->arraywidth = arrayWidth;
 
 	// Read only the image-data in an array
 	auto data = new unsigned char[arrayWidth];
@@ -212,7 +213,7 @@ int main() {
 	float* gaussKernel = generateKernel(radius, sigma);
 	int32_t imageLayers = 3;
 
-	string imageName = "images/mario.bmp";
+	string imageName = "images/delta.bmp";
 	const char* cImageName = imageName.c_str();
 	img* bmp = new img[IMAGE_SIZE];
 	unsigned char* imgData = openImg(cImageName, bmp);
