@@ -1,10 +1,6 @@
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 #define _CRT_SECURE_NO_DEPRECATE
 
-// My PC:
-// Device Capabilities : Max work items in single group : 256
-// Device Capabilities : Max work item dimensions : 3
-// Device Capabilities : Max work items in group per dimension : 0 : 1024 1 : 1024 2 : 1024
 
 #include <CL/cl.h>
 
@@ -385,8 +381,6 @@ int main() {
 	printf("Read the output of the vertical kernel execution!\n");
 
 	#pragma endregion "Vertical-Pass"
-
-	writeImage(outputImage, bmp, "vertical-filter.bmp");
 
 	#pragma region "Horizontal-Pass"
 
