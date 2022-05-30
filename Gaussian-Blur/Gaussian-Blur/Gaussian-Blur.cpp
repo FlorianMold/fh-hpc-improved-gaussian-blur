@@ -173,7 +173,7 @@ float* generateKernel(int radius, float sigma) {
 	int diameter = radius * 2 + 1;
 
 	float* gauss(new float[diameter * diameter]);
-	float sum = 0;
+	float sum = 0.0f;
 	int i, j;
 
 	for (i = 0; i < diameter; i++) {
@@ -181,7 +181,7 @@ float* generateKernel(int radius, float sigma) {
 			float x = i - (diameter - 1) / 2.0;
 			float y = j - (diameter - 1) / 2.0;
 			gauss[j * diameter + i] = 1.0 / (2.0 * M_PI * pow(sigma, 2.0)) * exp(-(pow(x, 2) + pow(y, 2)) / (2 * pow(sigma, 2)));
-			sum += gauss[i];
+			sum += gauss[j * diameter + i];
 		}
 	}
 
@@ -200,20 +200,18 @@ float* generateKernel(int radius, float sigma) {
 	}
 	printf("\n");
 
-
 	return gauss;
 }
 
 int main() {
-
 	// Generate kernel
 	float sigma = 10.0f;
 	int32_t radius = 9;
 	int32_t diameter = radius * 2 + 1;
-	float* gaussKernel = generateKernel(radius, sigma);
 	int32_t imageLayers = 3;
+	float* gaussKernel = generateKernel(radius, sigma);
 
-	string imageName = "images/delta.bmp";
+	string imageName = "images/mario.bmp";
 	const char* cImageName = imageName.c_str();
 	img* bmp = new img[IMAGE_SIZE];
 	unsigned char* imgData = openImg(cImageName, bmp);
@@ -338,6 +336,10 @@ int main() {
 	cl_kernel kernel = clCreateKernel(program, "gaussian_blur", &status);
 	checkStatus(status);
 
+	size_t maxKernelWorkGroupSize;
+	checkStatus(clGetKernelWorkGroupInfo(kernel, device, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &maxKernelWorkGroupSize, NULL));
+	printf("CL_KERNEL_WORK_GROUP_SIZE: %zu\n", maxKernelWorkGroupSize);
+
 	// orientation = 0 ==> column-wise
 	// orientation = 1 ==> row-wise
 
@@ -351,7 +353,7 @@ int main() {
 	// The output-image.
 	unsigned char* outputImage = new unsigned char[arrayWidth];
 
-	size_t globalWorkSize[1] = { imageWidth * imageHeight };
+	size_t globalWorkSize[1] = { imageSize };
 
 	#pragma region "Vertical-Pass"
 

@@ -65,9 +65,9 @@ __kernel void gaussian_blur(
     float colorSum = 0;
     float weightedSum = 0;
 
-    for (int i = -radius; i <= radius; i++) {
+    for (int i = -radius, ki = 0; i <= radius; i++, ki++) {
 
-      float gaussKernelValue = gaussKernel[i + radius];
+      float gaussKernelValue = gaussKernel[ki];
 
       int clampedCurrentElement = localId;
 
