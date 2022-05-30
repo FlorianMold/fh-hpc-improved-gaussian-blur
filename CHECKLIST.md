@@ -18,6 +18,6 @@ argument
 - [x] Implement the Gaussian blur as two-pass filter
 - [x] Implement a single kernel function and call it two times
 - [x] One call should run column-wise and one call should run row-wise (Do not transpose the image!)
-- [x] The work-group size should always be equal to one column / one row of the soruce image
+- [x] The work-group size should always be equal to one column / one row of the source image
 - [x] Exit the program if the resulting work-group is too big for the system
 - [x] Minimize access of source pixel values from Global Memory by utilizing Local Memory

@@ -2,7 +2,7 @@
 
 Project Owner: Florian Mold, Aytac Karakaya
 
-Simple Gaussian Blur
+Improved Gaussian Blur
 
 # Implemented a Gaussian blur as a single kernel call
 
@@ -19,4 +19,4 @@ We used C++ for implementing this feature and only 24 bit .bmp files can be used
 # Testing
 The package contains test images. You can find the images in the image folder.
 
-* images/...bmp
+* images/*.bmp
